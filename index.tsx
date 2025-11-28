@@ -41,7 +41,12 @@ const formatDollar = (value) => {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 };
 
-const getYearMonth = (date) => date.toISOString().substring(0, 7); // YYYY-MM
+const getYearMonth = (date) => {
+  // Uses local time instead of UTC to avoid timezone issues (e.g. evening in Brazil -> next day UTC)
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}; 
 
 const formatMonthYear = (monthStr) => { // "YYYY-MM"
   if (!monthStr || !monthStr.includes('-')) return '';
@@ -54,7 +59,7 @@ const getAdjacentMonth = (monthStr, direction) => {
     const [year, month] = monthStr.split('-');
     const date = new Date(Number(year), Number(month) - 1, 15); 
     date.setMonth(date.getMonth() + direction);
-    return date.toISOString().substring(0, 7);
+    return getYearMonth(date);
 }
 
 // --- Custom Hooks ---
@@ -542,6 +547,12 @@ const Dashboard = ({ selectedMonth, setSelectedMonth, trades, balances, initialB
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          layout: {
+            padding: {
+                top: 25,
+                bottom: 25
+            }
+          },
           scales: {
             y: { 
                 beginAtZero: true, 
@@ -563,11 +574,11 @@ const Dashboard = ({ selectedMonth, setSelectedMonth, trades, balances, initialB
             datalabels: {
               anchor: 'end',
               align: 'end',
-              offset: -4,
+              offset: 0,
               formatter: (value) => value !== 0 ? formatCurrency(value) : null,
-              color: '#FFFFFF',
+              color: '#e0e0e0',
               font: {
-                size: 11,
+                size: 10,
                 weight: 'bold'
               },
               display: 'auto'
@@ -632,7 +643,16 @@ const Dashboard = ({ selectedMonth, setSelectedMonth, trades, balances, initialB
 };
 
 const TradeForm = ({ addTrade }) => {
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  // Use local date instead of UTC to avoid date skipping ahead in evenings
+  const getLocalToday = () => {
+      const d = new Date();
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+  };
+
+  const [date, setDate] = useState(getLocalToday());
   const [asset, setAsset] = useState('');
   const [result, setResult] = useState('');
 
@@ -660,7 +680,7 @@ const TradeForm = ({ addTrade }) => {
   };
   
   const setToday = () => {
-      setDate(new Date().toISOString().split('T')[0]);
+      setDate(getLocalToday());
   }
 
   const openDatePicker = (e) => {
