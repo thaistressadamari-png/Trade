@@ -233,7 +233,7 @@ const DepositsModal = ({ month, deposits, onAddDeposit, onDeleteDeposit, onClose
     );
 };
 
-const FinalBalanceModal = ({ month, initialBalance, dailyData, dailyDeposits, finalBalance, allTrades, allBalances, onClose }) => {
+const FinalBalanceModal = ({ month, initialBalance, dailyData, dailyDeposits, finalBalance, allTrades, allBalances, allDeposits, onClose }) => {
     const chartRef = useRef(null);
     const chartInstance = useRef(null);
     const [viewMode, setViewMode] = useState('month'); // 'month' or 'year'
@@ -243,6 +243,28 @@ const FinalBalanceModal = ({ month, initialBalance, dailyData, dailyDeposits, fi
         const saved = localStorage.getItem('exchangeRate');
         return saved ? parseFloat(saved) : 5.50;
     });
+
+    // Fetch live exchange rate
+    useEffect(() => {
+        const fetchRate = async () => {
+            try {
+                // Fetch USD-BRL rate from AwesomeAPI
+                const response = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL');
+                const data = await response.json();
+                // "bid" is the purchase price (compra), usually used for reference
+                if (data.USDBRL && data.USDBRL.bid) {
+                    const rate = parseFloat(data.USDBRL.bid);
+                    if (!isNaN(rate)) {
+                        setExchangeRate(rate);
+                    }
+                }
+            } catch (error) {
+                console.error("Error fetching exchange rate:", error);
+            }
+        };
+
+        fetchRate();
+    }, []);
 
     // Save to localStorage whenever it changes
     useEffect(() => {
@@ -291,19 +313,18 @@ const FinalBalanceModal = ({ month, initialBalance, dailyData, dailyDeposits, fi
                 // Calculate profit for this specific month
                 const monthlyTrades = allTrades.filter(t => t.date.startsWith(monthStr));
                 const monthlyProfit = monthlyTrades.reduce((acc, t) => acc + t.result, 0);
+
+                // Calculate deposits for this specific month
+                const monthlyDepositsList = (allDeposits || []).filter(d => d.date.startsWith(monthStr));
+                const monthlyDepositsTotal = monthlyDepositsList.reduce((acc, d) => acc + d.value, 0);
                 
-                // We technically should add deposits here if the "End Balance" is what we want.
-                // However, usually "Evolution" tracks the bankroll state. 
-                // If the user updated the next month's Initial Balance correctly, it implicitly includes previous month's deposits.
-                // But let's add deposits for visual consistency if we are plotting "End of Month" result.
-                // For now, let's keep it simple: Start + Profit. If they made a deposit, they should have updated the next month's Start Balance.
-                
-                data.push(monthStartBalance + monthlyProfit);
+                // Start + Profit + Deposits for specific month
+                data.push(monthStartBalance + monthlyProfit + monthlyDepositsTotal);
             });
 
             return { labels: months, data, title: `Evolução em ${currentYear}` };
         }
-    }, [month, initialBalance, dailyData, dailyDeposits, viewMode, allTrades, allBalances]);
+    }, [month, initialBalance, dailyData, dailyDeposits, viewMode, allTrades, allBalances, allDeposits]);
 
     useEffect(() => {
         if (chartRef.current) {
@@ -412,7 +433,7 @@ const FinalBalanceModal = ({ month, initialBalance, dailyData, dailyDeposits, fi
                         <input 
                             id="rate"
                             type="number" 
-                            step="0.01" 
+                            step="0.0001" 
                             value={exchangeRate} 
                             onChange={(e) => setExchangeRate(parseFloat(e.target.value))} 
                         />
@@ -801,6 +822,7 @@ const Dashboard = ({
             finalBalance={finalBalance}
             allTrades={trades}
             allBalances={balances}
+            allDeposits={deposits}
             onClose={() => setShowFinalModal(false)}
           />
       )}
