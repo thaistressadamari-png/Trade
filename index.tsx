@@ -31,6 +31,7 @@ const db = getFirestore(app);
 
 const tradesCollection = collection(db, 'trades');
 const balancesCollection = collection(db, 'balances');
+const depositsCollection = collection(db, 'deposits');
 
 // --- Helper Functions ---
 const formatCurrency = (value) => {
@@ -77,8 +78,25 @@ const useIsMobile = (breakpoint = 768) => {
     return isMobile;
 };
 
-
 // --- Components ---
+const DeleteConfirmationModal = ({ 
+  onConfirm, 
+  onCancel, 
+  title = "Apagar Operação", 
+  message = "Tem certeza que deseja apagar esta operação? Esta ação não pode ser desfeita." 
+}) => (
+  <div className="modal-backdrop" onClick={onCancel} style={{zIndex: 50}}>
+    <div className="modal-content" style={{maxWidth: '350px'}} onClick={(e) => e.stopPropagation()}>
+      <h2>{title}</h2>
+      <p style={{color: '#a0a0a0', marginBottom: '1.5rem'}}>{message}</p>
+      <div className="modal-actions">
+        <button onClick={onCancel} className="btn-secondary">Cancelar</button>
+        <button onClick={onConfirm} className="btn-danger"><i className="ph-fill ph-trash"></i> Apagar</button>
+      </div>
+    </div>
+  </div>
+);
+
 const InitialBalanceModal = ({ month, onSave, initialValue }) => {
   const [balance, setBalance] = useState(initialValue ?? '');
   
@@ -111,7 +129,111 @@ const InitialBalanceModal = ({ month, onSave, initialValue }) => {
   );
 };
 
-const FinalBalanceModal = ({ month, initialBalance, dailyData, finalBalance, allTrades, allBalances, onClose }) => {
+const DepositsModal = ({ month, deposits, onAddDeposit, onDeleteDeposit, onClose }) => {
+    const [value, setValue] = useState('');
+    const [date, setDate] = useState(() => {
+        const d = new Date();
+        const year = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        // Default to today if within current month, otherwise default to 1st of selected month
+        if (`${year}-${m}` === month) return `${year}-${m}-${day}`;
+        return `${month}-01`;
+    });
+    const [depositToDelete, setDepositToDelete] = useState(null);
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        const numValue = parseFloat(value);
+        if (!isNaN(numValue) && numValue > 0) {
+            onAddDeposit({
+                date,
+                value: numValue,
+                month: date.substring(0, 7) // Store month key for easier filtering
+            });
+            setValue('');
+        }
+    };
+
+    const handleConfirmDelete = () => {
+        if (depositToDelete) {
+            onDeleteDeposit(depositToDelete);
+            setDepositToDelete(null);
+        }
+    };
+
+    const monthDeposits = deposits.filter(d => d.month === month || d.date.startsWith(month));
+    const totalDeposits = monthDeposits.reduce((acc, d) => acc + d.value, 0);
+
+    return (
+        <div className="modal-backdrop" onClick={onClose}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                    <h2>Aportes de {formatMonthYear(month)}</h2>
+                    <button className="close-btn" onClick={onClose}><i className="ph-bold ph-x"></i></button>
+                </div>
+
+                <div className="summary-card" style={{marginBottom: '1.5rem', textAlign: 'center', borderColor: 'var(--primary-green)'}}>
+                    <span style={{color: 'var(--text-secondary)', fontSize: '0.9rem'}}>Total Aportado</span>
+                    <strong style={{display: 'block', fontSize: '1.5rem', color: 'var(--primary-green)'}}>
+                        {formatCurrency(totalDeposits)}
+                    </strong>
+                </div>
+
+                <form onSubmit={handleSubmit} style={{marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid var(--border-color)'}}>
+                    <div className="input-group">
+                        <label>Data do Aporte</label>
+                        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+                    </div>
+                    <div className="input-group">
+                        <label>Valor ($)</label>
+                        <input 
+                            type="number" 
+                            step="any" 
+                            value={value} 
+                            onChange={(e) => setValue(e.target.value)} 
+                            placeholder="Ex: 100.00"
+                            required 
+                        />
+                    </div>
+                    <button type="submit" style={{width: '100%'}}>
+                        <i className="ph-bold ph-plus"></i> Adicionar Aporte
+                    </button>
+                </form>
+
+                <div className="deposits-list">
+                    <h3 style={{fontSize: '1rem', marginBottom: '0.5rem'}}>Histórico</h3>
+                    {monthDeposits.length === 0 ? (
+                        <p style={{color: 'var(--text-secondary)', fontSize: '0.9rem'}}>Nenhum aporte registrado.</p>
+                    ) : (
+                        <ul className="trade-list" style={{maxHeight: '200px', overflowY: 'auto'}}>
+                            {monthDeposits.map(deposit => (
+                                <li key={deposit.id} className="trade-item" style={{gridTemplateColumns: '1fr 1fr auto'}}>
+                                    <span>{new Date(deposit.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'})}</span>
+                                    <span className="profit">{formatCurrency(deposit.value)}</span>
+                                    <button className="delete-btn" onClick={() => setDepositToDelete(deposit.id)}>
+                                        <i className="ph-bold ph-trash"></i>
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+
+                {depositToDelete && (
+                    <DeleteConfirmationModal 
+                        title="Apagar Aporte"
+                        message="Tem certeza que deseja apagar este aporte?"
+                        onConfirm={handleConfirmDelete} 
+                        onCancel={() => setDepositToDelete(null)} 
+                    />
+                )}
+            </div>
+        </div>
+    );
+};
+
+const FinalBalanceModal = ({ month, initialBalance, dailyData, dailyDeposits, finalBalance, allTrades, allBalances, onClose }) => {
     const chartRef = useRef(null);
     const chartInstance = useRef(null);
     const [viewMode, setViewMode] = useState('month'); // 'month' or 'year'
@@ -138,7 +260,10 @@ const FinalBalanceModal = ({ month, initialBalance, dailyData, finalBalance, all
             
             let runningBalance = initialBalance;
             const data = labels.map(day => {
+                // Add Profit/Loss for the day
                 runningBalance += (dailyData[day] || 0);
+                // Add Deposits for the day
+                runningBalance += (dailyDeposits[day] || 0);
                 return runningBalance;
             });
             
@@ -152,15 +277,14 @@ const FinalBalanceModal = ({ month, initialBalance, dailyData, finalBalance, all
             
             const data = [];
             
-            // Calculate balance for each month
             months.forEach((_, index) => {
                 const monthIndex = index + 1;
                 const monthStr = `${currentYear}-${monthIndex.toString().padStart(2, '0')}`;
                 
-                // Get initial balance for this month
-                // If not set explicitly, carry over from previous month logic could be complex, 
-                // so we simplify: Try to find explicit balance, otherwise estimate based on previous.
-                // For simplicity in this view, we calculate strictly based on recorded trades + known initials.
+                // For simplicity in Year view, we approximate using recorded initial balances + trades + deposits would be complex.
+                // We will stick to the previous logic: Start Balance of Month + Profit of Month.
+                // Note: Ideally, Year view should chain months, but without full historical data linking, 
+                // we rely on the `allBalances` (Initial Balance) being set correctly for each month.
                 
                 let monthStartBalance = allBalances[monthStr] || 0;
                 
@@ -168,12 +292,18 @@ const FinalBalanceModal = ({ month, initialBalance, dailyData, finalBalance, all
                 const monthlyTrades = allTrades.filter(t => t.date.startsWith(monthStr));
                 const monthlyProfit = monthlyTrades.reduce((acc, t) => acc + t.result, 0);
                 
+                // We technically should add deposits here if the "End Balance" is what we want.
+                // However, usually "Evolution" tracks the bankroll state. 
+                // If the user updated the next month's Initial Balance correctly, it implicitly includes previous month's deposits.
+                // But let's add deposits for visual consistency if we are plotting "End of Month" result.
+                // For now, let's keep it simple: Start + Profit. If they made a deposit, they should have updated the next month's Start Balance.
+                
                 data.push(monthStartBalance + monthlyProfit);
             });
 
             return { labels: months, data, title: `Evolução em ${currentYear}` };
         }
-    }, [month, initialBalance, dailyData, viewMode, allTrades, allBalances]);
+    }, [month, initialBalance, dailyData, dailyDeposits, viewMode, allTrades, allBalances]);
 
     useEffect(() => {
         if (chartRef.current) {
@@ -303,19 +433,6 @@ const FinalBalanceModal = ({ month, initialBalance, dailyData, finalBalance, all
         </div>
     );
 };
-
-const DeleteConfirmationModal = ({ onConfirm, onCancel }) => (
-  <div className="modal-backdrop" onClick={onCancel}>
-    <div className="modal-content" style={{maxWidth: '350px'}} onClick={(e) => e.stopPropagation()}>
-      <h2>Apagar Operação</h2>
-      <p style={{color: '#a0a0a0', marginBottom: '1.5rem'}}>Tem certeza que deseja apagar esta operação? Esta ação não pode ser desfeita.</p>
-      <div className="modal-actions">
-        <button onClick={onCancel} className="btn-secondary">Cancelar</button>
-        <button onClick={onConfirm} className="btn-danger"><i className="ph-fill ph-trash"></i> Apagar</button>
-      </div>
-    </div>
-  </div>
-);
 
 const MonthYearPickerModal = ({ currentMonth, onSelect, onClose }) => {
   const [displayYear, setDisplayYear] = useState(new Date(currentMonth + '-15').getFullYear());
@@ -487,17 +604,36 @@ const MobileDailySummary = ({ dailyData, selectedMonth }) => {
     );
 };
 
-const Dashboard = ({ selectedMonth, setSelectedMonth, trades, balances, initialBalance, onEditBalance, onOpenMonthPicker }) => {
+const Dashboard = ({ 
+  selectedMonth, 
+  setSelectedMonth, 
+  trades, 
+  balances, 
+  deposits,
+  initialBalance, 
+  onEditBalance, 
+  onOpenMonthPicker,
+  onAddDeposit,
+  onDeleteDeposit
+}) => {
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
   const isMobile = useIsMobile();
   const [showFinalModal, setShowFinalModal] = useState(false);
+  const [showDepositsModal, setShowDepositsModal] = useState(false);
   
   const monthTrades = useMemo(() => trades.filter(t => t.date.substring(0, 7) === selectedMonth), [trades, selectedMonth]);
+  const monthDeposits = useMemo(() => deposits.filter(d => d.date.substring(0, 7) === selectedMonth), [deposits, selectedMonth]);
 
   const monthlyProfit = monthTrades.reduce((acc, trade) => acc + trade.result, 0);
+  const totalDeposits = monthDeposits.reduce((acc, d) => acc + d.value, 0);
+  
+  // Calculate Profit Percentage based on (Initial + Deposits) or just Initial? 
+  // Usually ROI is based on starting capital. Let's stick to Initial for ROI to check performance against the start.
+  // Alternatively, we could do (Profit / (Initial + Deposits)). Let's stick to Initial for now as "Base".
   const profitPercentage = initialBalance > 0 ? (monthlyProfit / initialBalance) * 100 : 0;
-  const finalBalance = initialBalance + monthlyProfit;
+  
+  const finalBalance = initialBalance + totalDeposits + monthlyProfit;
 
   const dailyData = useMemo(() => {
     return monthTrades.reduce((acc, trade) => {
@@ -506,6 +642,15 @@ const Dashboard = ({ selectedMonth, setSelectedMonth, trades, balances, initialB
         return acc;
       }, {});
   }, [monthTrades]);
+
+  // Aggregate daily deposits for the chart
+  const dailyDepositsData = useMemo(() => {
+    return monthDeposits.reduce((acc, d) => {
+        const day = new Date(d.date).getUTCDate();
+        acc[day] = (acc[day] || 0) + d.value;
+        return acc;
+    }, {});
+  }, [monthDeposits]);
 
   useEffect(() => {
     if (!isMobile && chartRef.current) {
@@ -609,8 +754,18 @@ const Dashboard = ({ selectedMonth, setSelectedMonth, trades, balances, initialB
       />
       <div className="summary-grid">
         <SummaryCard icon="bank" title="Banca Inicial" value={formatCurrency(initialBalance)} onEdit={onEditBalance} />
+        
+        <SummaryCard 
+            icon="piggy-bank" 
+            title="Aportes" 
+            value={formatCurrency(totalDeposits)} 
+            onClick={() => setShowDepositsModal(true)}
+            className="clickable-value profit"
+        />
+
         <SummaryCard icon="chart-line-up" title="Lucro/Prejuízo" value={formatCurrency(monthlyProfit)} className={monthlyProfit >= 0 ? 'profit' : 'loss'} />
         <SummaryCard icon="percent" title="% Lucro Mensal" value={`${profitPercentage.toFixed(2)}%`} className={profitPercentage >= 0 ? 'profit' : 'loss'} />
+        
         <SummaryCard 
             icon="wallet" 
             title="Banca Final" 
@@ -627,11 +782,22 @@ const Dashboard = ({ selectedMonth, setSelectedMonth, trades, balances, initialB
         )}
       </div>
 
+      {showDepositsModal && (
+          <DepositsModal 
+            month={selectedMonth}
+            deposits={deposits}
+            onAddDeposit={onAddDeposit}
+            onDeleteDeposit={onDeleteDeposit}
+            onClose={() => setShowDepositsModal(false)}
+          />
+      )}
+
       {showFinalModal && (
           <FinalBalanceModal 
             month={selectedMonth}
             initialBalance={initialBalance}
             dailyData={dailyData}
+            dailyDeposits={dailyDepositsData}
             finalBalance={finalBalance}
             allTrades={trades}
             allBalances={balances}
@@ -795,19 +961,7 @@ const Settings = ({ trades, onImport }) => {
     
     const XLSX = (window as any).XLSX;
     const wb = XLSX.utils.book_new();
-    // In Firebase version, we don't have synchronous DB.getBalances().
-    // We'll assume balances are not critically needed for just exporting trade rows, 
-    // OR we'd need to pass balances as props to Settings.
-    // For simplicity in this refactor, we will omit 'balances' from export or 
-    // would need to refactor Settings to accept balances as a prop.
-    // Let's assume the user mainly wants their trade history.
-    // To do it right, let's just export trades grouped by month. 
     
-    // Note: To include balances, we would need to receive them as props.
-    // The current implementation of Settings receives `trades`. 
-    // We can't access balances here easily without props. 
-    // For now, we will export the trades list.
-
     const tradesByMonth = {};
     
     trades.forEach(t => {
@@ -1109,6 +1263,7 @@ const App = () => {
   const [page, setPage] = useState('dashboard');
   const [trades, setTrades] = useState([]);
   const [balances, setBalances] = useState({});
+  const [deposits, setDeposits] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(getYearMonth(new Date()));
   const [showModal, setShowModal] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
@@ -1138,6 +1293,15 @@ const App = () => {
                   loadedBalances[doc.id] = doc.data().value;
               });
               setBalances(loadedBalances);
+
+              // Fetch Deposits
+              const depositsSnapshot = await getDocs(depositsCollection);
+              const loadedDeposits = depositsSnapshot.docs.map(doc => ({
+                  id: doc.id,
+                  ...doc.data()
+              }));
+              setDeposits(loadedDeposits);
+
           } catch (error) {
               console.error("Error loading data from Firebase:", error);
               alert("Erro ao carregar dados. Verifique sua conexão.");
@@ -1168,6 +1332,26 @@ const App = () => {
         console.error("Error adding trade:", e);
         alert("Erro ao salvar operação.");
     }
+  };
+  
+  const addDeposit = async (depositData) => {
+      try {
+          const docRef = await addDoc(depositsCollection, depositData);
+          setDeposits(prev => [...prev, { ...depositData, id: docRef.id }]);
+      } catch (e) {
+          console.error("Error adding deposit:", e);
+          alert("Erro ao adicionar aporte.");
+      }
+  };
+
+  const deleteDeposit = async (id) => {
+      try {
+          await deleteDoc(doc(db, 'deposits', id));
+          setDeposits(prev => prev.filter(d => d.id !== id));
+      } catch (e) {
+          console.error("Error deleting deposit:", e);
+          alert("Erro ao remover aporte.");
+      }
   };
 
   const importTrades = async (importedTrades) => {
@@ -1245,9 +1429,12 @@ const App = () => {
             setSelectedMonth={setSelectedMonth}
             trades={trades}
             balances={balances}
+            deposits={deposits}
             initialBalance={initialBalanceForMonth ?? 0}
             onEditBalance={openBalanceModal}
             onOpenMonthPicker={() => setShowMonthPicker(true)}
+            onAddDeposit={addDeposit}
+            onDeleteDeposit={deleteDeposit}
           />
         )}
 
